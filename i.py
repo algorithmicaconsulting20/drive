@@ -3,17 +3,15 @@ import os
 import tempfile
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
 import re
 
-# ------------------ Google Drive Authentication (Embedded Credentials) ------------------
+# ------------------ Google Drive Authentication (Embedded Credentials + Token) ------------------
 SCOPES = ["https://www.googleapis.com/auth/drive"]
-TOKEN_PATH = "token.json"
 
+# Embedded credentials
 CLIENT_CONFIG = {
     "installed": {
         "client_id": "257082126321-j0vjhvdiieej5athd9mvk98trksts1ac.apps.googleusercontent.com",
@@ -26,20 +24,18 @@ CLIENT_CONFIG = {
     }
 }
 
+# Embedded token
+TOKEN_INFO = {
+    "token": "ya29.a0ATi6K2v7fLYqYdLT4e4OYjmP6nNcf6If1qkNnHnWSg3nONNANSD2fDzvVycu4mQw6dLu708neFtMyi3oa3YAMYbYhcWteYkPrtkBIuUZmTGwl6xLl5z_D0MtQsSSV8itev08JCYim7v-QX7z9T3rFMbX9_8FsciUoLjDxSZBXwxnIo6CqocqkVvKQRtorNU9BQmYhtEaCgYKAZkSARMSFQHGX2MiKLo5dcW92YX-kliJBuw-WA0206",
+    "refresh_token": "1//0gVKJtFRDzGCkCgYIARAAGBASNwF-L9IriDsc4XdI758pYPYgiw8WkbIT0J_6HjYctXqdik0oIpDTFyj6hAdH9FmcdiZOnN-fio0",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "client_id": CLIENT_CONFIG["installed"]["client_id"],
+    "client_secret": CLIENT_CONFIG["installed"]["client_secret"],
+    "scopes": SCOPES
+}
+
 def get_gdrive_service():
-    creds = None
-    if os.path.exists(TOKEN_PATH):
-        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
-    
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_config(CLIENT_CONFIG, SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open(TOKEN_PATH, "w") as token_file:
-            token_file.write(creds.to_json())
-    
+    creds = Credentials.from_authorized_user_info(TOKEN_INFO, SCOPES)
     service = build("drive", "v3", credentials=creds)
     return service
 
@@ -81,16 +77,13 @@ def upload_to_drive(service, folder_id, file_path, filename):
     existing_file_id = find_file(service, folder_id, filename)
     media = MediaFileUpload(file_path, resumable=True)
 
-    try:
-        if existing_file_id:
-            service.files().update(fileId=existing_file_id, media_body=media).execute()
-            st.success(f"✅ File updated: {filename}")
-        else:
-            file_metadata = {"name": filename, "parents": [folder_id]}
-            service.files().create(body=file_metadata, media_body=media, fields="id").execute()
-            st.success(f"✅ New file uploaded: {filename}")
-    except Exception as e:
-        st.error(f"❌ Upload failed: {e}")
+    if existing_file_id:
+        service.files().update(fileId=existing_file_id, media_body=media).execute()
+        st.success(f"✅ File updated: {filename}")
+    else:
+        file_metadata = {"name": filename, "parents": [folder_id]}
+        service.files().create(body=file_metadata, media_body=media, fields="id").execute()
+        st.success(f"✅ New file uploaded: {filename}")
 
 # ------------------ Streamlit App ------------------
 def main():
@@ -135,15 +128,17 @@ def main():
             st.error(f"❌ File name must exactly match folder name: '{base_name}'")
             return
 
-        # --- Save file to temp directory with versioning ---
+        # --- Save temp file ---
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
+            tmp_file.write(uploaded_file.read())
+            temp_name = tmp_file.name
+
+        # --- Determine next version ---
         next_v = get_next_version(files, base_name)
         timestamp = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y%m%d_%H%M%S")
         new_filename = f"{base_name}_v{next_v}_{uploader_name}_{timestamp}.zip"
-        temp_dir = tempfile.gettempdir()
-        new_path = os.path.join(temp_dir, new_filename)
-
-        with open(new_path, "wb") as f:
-            f.write(uploaded_file.read())
+        new_path = os.path.join(tempfile.gettempdir(), new_filename)
+        os.replace(temp_name, new_path)
 
         upload_to_drive(service, folder_id, new_path, new_filename)
 
