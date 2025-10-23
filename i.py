@@ -13,7 +13,8 @@ import re
 # ------------------ Google Drive Authentication ------------------
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 TOKEN_PATH = "token.json"
-CREDENTIALS_PATH = r"C:\Users\Hp\Downloads\drive\client_secret_257082126321-j0vjhvdiieej5athd9mvk98trksts1ac.apps.googleusercontent.com.json"
+CREDENTIALS_PATH = "client_secret_257082126321-j0vjhvdiieej5athd9mvk98trksts1ac.apps.googleusercontent.com.json"
+
 
 def get_gdrive_service():
     creds = None
@@ -135,4 +136,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
