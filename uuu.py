@@ -7,7 +7,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
 import re
-
+#changed one
 # ------------------ Google Drive Authentication ------------------
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
@@ -151,10 +151,13 @@ def main():
             tmp_file.write(uploaded_file.read())
             temp_name = tmp_file.name
 
-        # Determine next version
+        # Determine next version (based on folder name prefix)
         next_v = get_next_version(files, base_name)
         timestamp = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y%m%d_%H%M%S")
-        new_filename = f"{base_name}_v{next_v}_{uploader_name}_{timestamp}.zip"
+
+        # ✅ Keep uploaded filename (e.g. ms_ADMIN_frontend.zip)
+        safe_uploaded_name = os.path.splitext(uploaded_file.name)[0]
+        new_filename = f"{safe_uploaded_name}_v{next_v}_{uploader_name}_{timestamp}.zip"
         new_path = os.path.join(tempfile.gettempdir(), new_filename)
         os.replace(temp_name, new_path)
 
