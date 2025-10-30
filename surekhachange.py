@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import os
 import tempfile
 from datetime import datetime
@@ -138,12 +138,11 @@ def main():
             st.error("Please upload a ZIP file.")
             return
 
-        # --- ✅ Relaxed Rule: File name must start with folder name ---
-        base_name = selected_folder.strip()
-        uploaded_base_name = os.path.splitext(uploaded_file.name)[0].strip()
-
-        if not uploaded_base_name.lower().startswith(base_name.lower()):
-            st.error(f"❌ File name must start with the folder name: '{base_name}'")
+        # File name must match folder name
+        base_name = selected_folder
+        uploaded_base_name = os.path.splitext(uploaded_file.name)[0]
+        if uploaded_base_name.lower() != base_name.lower():
+            st.error(f"❌ File name must exactly match folder name: '{base_name}'")
             return
 
         # Save temp file
