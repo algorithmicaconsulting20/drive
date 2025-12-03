@@ -8,7 +8,6 @@ from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
 import re
 
-
 # ------------------ Google Drive Authentication ------------------
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
@@ -33,13 +32,11 @@ TOKEN_INFO = {
     "scopes": SCOPES
 }
 
-
 # ------------------ Google Drive Setup ------------------
 def get_gdrive_service():
     creds = Credentials.from_authorized_user_info(TOKEN_INFO, SCOPES)
     service = build("drive", "v3", credentials=creds)
     return service
-
 
 # ------------------ Helpers ------------------
 def make_file_public(service, file_id):
@@ -49,14 +46,12 @@ def make_file_public(service, file_id):
     except Exception as e:
         st.warning(f"⚠️ Could not make file public: {e}")
 
-
 def list_folders(service):
     results = service.files().list(
         q="mimeType='application/vnd.google-apps.folder' and trashed=false",
         fields="files(id, name)", pageSize=1000
     ).execute()
     return results.get("files", [])
-
 
 def list_files_in_folder(service, folder_id):
     results = service.files().list(
@@ -66,13 +61,14 @@ def list_files_in_folder(service, folder_id):
     ).execute()
     return results.get("files", [])
 
-
 def find_file(service, folder_id, filename):
     query = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
     results = service.files().list(q=query, spaces="drive", fields="files(id, name)").execute()
     items = results.get("files", [])
     return items[0]["id"] if items else None
 
+def delete_file(service, file_id):
+    service.files().delete(fileId=file_id).execute()
 
 def get_next_version(existing_files, base_name):
     pattern = re.compile(rf"{re.escape(base_name)}_v(\d+)")
@@ -82,7 +78,6 @@ def get_next_version(existing_files, base_name):
         if m:
             max_v = max(max_v, int(m.group(1)))
     return max_v + 1
-
 
 def upload_to_drive(service, folder_id, file_path, filename):
     existing_file_id = find_file(service, folder_id, filename)
@@ -98,25 +93,19 @@ def upload_to_drive(service, folder_id, file_path, filename):
         make_file_public(service, uploaded.get("id"))
         st.success(f"✅ New file uploaded: {filename}")
 
-
-# ⭐ NEW — Create Folder Function
 def create_new_folder(service, folder_name):
-    metadata = {
-        "name": folder_name,
-        "mimeType": "application/vnd.google-apps.folder"
-    }
+    metadata = {"name": folder_name, "mimeType": "application/vnd.google-apps.folder"}
     folder = service.files().create(body=metadata, fields="id, name").execute()
     return folder["id"]
 
-
-# ------------------ Streamlit App ------------------
+# ------------------ Streamlit UI ------------------
 def main():
     st.title("📁 Google Drive ZIP Upload with Versioning")
 
     uploader_name = st.text_input("👤 Enter your name:", "")
     service = get_gdrive_service()
 
-    # ---------------- FOLDER SECTION WITH BUTTON ----------------
+    # ---------------- FOLDER SELECTION ----------------
     st.subheader("📂 Select Drive Folder")
 
     col1, col2 = st.columns([4, 1])
@@ -130,7 +119,7 @@ def main():
         if st.button("➕"):
             st.session_state["create_folder"] = True
 
-    # Create folder popup
+    # Create new folder popup
     if st.session_state.get("create_folder"):
         new_name = st.text_input("New Folder Name:")
         if st.button("Create"):
@@ -139,7 +128,7 @@ def main():
             elif new_name in folder_options:
                 st.error("Folder already exists.")
             else:
-                new_id = create_new_folder(service, new_name)
+                create_new_folder(service, new_name)
                 st.success(f"Folder '{new_name}' created!")
                 st.session_state["create_folder"] = False
                 st.rerun()
@@ -150,7 +139,7 @@ def main():
 
     folder_id = folder_options[selected_folder]
 
-    # ---------------- SHOW FILES ----------------
+    # ---------------- SHOW FILES WITH DELETE OPTION ----------------
     st.write(f"### Files inside '{selected_folder}' folder:")
     files = list_files_in_folder(service, folder_id)
 
@@ -158,13 +147,22 @@ def main():
         for f in files:
             fname = f["name"]
             ftime = f["modifiedTime"]
-            link = f"https://drive.google.com/uc?id={f['id']}&export=download"
+            file_id = f["id"]
+            link = f"https://drive.google.com/uc?id={file_id}&export=download"
 
-            colA, colB = st.columns([4, 1])
+            colA, colB, colC = st.columns([5, 2, 1])
+
             with colA:
                 st.write(f"📦 **{fname}**\n🕒 {ftime}")
+
             with colB:
                 st.markdown(f"[⬇️ Download]({link})", unsafe_allow_html=True)
+
+            with colC:
+                if st.button("🗑️ Delete", key=f"del_{file_id}"):
+                    delete_file(service, file_id)
+                    st.success(f"🗑️ Deleted: {fname}")
+                    st.rerun()
     else:
         st.info("This folder is empty.")
 
@@ -202,7 +200,6 @@ def main():
         upload_to_drive(service, folder_id, final_path, new_filename)
 
         os.remove(final_path)
-
 
 if __name__ == "__main__":
     main()
