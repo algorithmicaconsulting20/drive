@@ -50,13 +50,6 @@ def make_file_public(service, file_id):
         st.warning(f"⚠️ Could not make file public: {e}")
 
 
-def find_file(service, folder_id, filename):
-    query = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
-    results = service.files().list(q=query, spaces="drive", fields="files(id, name)").execute()
-    items = results.get("files", [])
-    return items[0]["id"] if items else None
-
-
 def list_folders(service):
     results = service.files().list(
         q="mimeType='application/vnd.google-apps.folder' and trashed=false",
@@ -74,17 +67,11 @@ def list_files_in_folder(service, folder_id):
     return results.get("files", [])
 
 
-# ⭐ NEW: Create Folder Function
-def create_new_folder(service, folder_name, parent_id=None):
-    metadata = {
-        "name": folder_name,
-        "mimeType": "application/vnd.google-apps.folder"
-    }
-    if parent_id:
-        metadata["parents"] = [parent_id]
-
-    folder = service.files().create(body=metadata, fields="id, name").execute()
-    return folder["id"]
+def find_file(service, folder_id, filename):
+    query = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
+    results = service.files().list(q=query, spaces="drive", fields="files(id, name)").execute()
+    items = results.get("files", [])
+    return items[0]["id"] if items else None
 
 
 def get_next_version(existing_files, base_name):
@@ -112,74 +99,84 @@ def upload_to_drive(service, folder_id, file_path, filename):
         st.success(f"✅ New file uploaded: {filename}")
 
 
+# ⭐ NEW — Create Folder Function
+def create_new_folder(service, folder_name):
+    metadata = {
+        "name": folder_name,
+        "mimeType": "application/vnd.google-apps.folder"
+    }
+    folder = service.files().create(body=metadata, fields="id, name").execute()
+    return folder["id"]
+
+
 # ------------------ Streamlit App ------------------
 def main():
-    st.title("📁 Google Drive ZIP Upload with Versioning + Folder Creation")
+    st.title("📁 Google Drive ZIP Upload with Versioning")
 
     uploader_name = st.text_input("👤 Enter your name:", "")
     service = get_gdrive_service()
 
-    # ------- Folder Selection / Creation -------
-    st.subheader("📂 Select or Create Google Drive Folder")
-    folders = list_folders(service)
-    folder_options = {f['name']: f['id'] for f in folders}
+    # ---------------- FOLDER SECTION WITH BUTTON ----------------
+    st.subheader("📂 Select Drive Folder")
 
-    create_option = "➕ Create New Folder"
-    folder_display_list = list(folder_options.keys()) + [create_option]
+    col1, col2 = st.columns([4, 1])
 
-    selected = st.selectbox("Choose folder:", folder_display_list)
+    with col1:
+        folders = list_folders(service)
+        folder_options = {f["name"]: f["id"] for f in folders}
+        selected_folder = st.selectbox("Choose a folder:", list(folder_options.keys()))
 
-    if selected == create_option:
-        new_folder_name = st.text_input("📝 New folder name")
+    with col2:
+        if st.button("➕"):
+            st.session_state["create_folder"] = True
 
-        if st.button("Create Folder"):
-            if not new_folder_name.strip():
+    # Create folder popup
+    if st.session_state.get("create_folder"):
+        new_name = st.text_input("New Folder Name:")
+        if st.button("Create"):
+            if not new_name.strip():
                 st.error("Folder name cannot be empty.")
-                return
+            elif new_name in folder_options:
+                st.error("Folder already exists.")
+            else:
+                new_id = create_new_folder(service, new_name)
+                st.success(f"Folder '{new_name}' created!")
+                st.session_state["create_folder"] = False
+                st.rerun()
 
-            if new_folder_name in folder_options:
-                st.warning("Folder already exists. Select it from dropdown.")
-                return
+        if st.button("Cancel"):
+            st.session_state["create_folder"] = False
+            st.rerun()
 
-            folder_id = create_new_folder(service, new_folder_name)
-            st.success(f"✅ Folder '{new_folder_name}' created!")
+    folder_id = folder_options[selected_folder]
 
-            selected_folder = new_folder_name
-        else:
-            return  # Stop until user creates folder
-    else:
-        selected_folder = selected
-        folder_id = folder_options[selected_folder]
-
-    # ------- Show existing files -------
-    st.write(f"### Files in '{selected_folder}' folder:")
+    # ---------------- SHOW FILES ----------------
+    st.write(f"### Files inside '{selected_folder}' folder:")
     files = list_files_in_folder(service, folder_id)
 
     if files:
         for f in files:
-            name = f["name"]
-            time = f["modifiedTime"]
-            file_id = f["id"]
-            download = f"https://drive.google.com/uc?id={file_id}&export=download"
+            fname = f["name"]
+            ftime = f["modifiedTime"]
+            link = f"https://drive.google.com/uc?id={f['id']}&export=download"
 
-            col1, col2 = st.columns([4, 1])
-            with col1:
-                st.write(f"📦 **{name}**\n🕒 Modified: {time}")
-            with col2:
-                st.markdown(f"[⬇️ Download]({download})", unsafe_allow_html=True)
+            colA, colB = st.columns([4, 1])
+            with colA:
+                st.write(f"📦 **{fname}**\n🕒 {ftime}")
+            with colB:
+                st.markdown(f"[⬇️ Download]({link})", unsafe_allow_html=True)
     else:
-        st.info("No files in this folder.")
+        st.info("This folder is empty.")
 
-    # ------- File Upload -------
-    uploaded_file = st.file_uploader("Upload ZIP file", type=["zip"])
+    # ---------------- UPLOAD SECTION ----------------
+    uploaded_file = st.file_uploader("Upload ZIP File", type=["zip"])
 
-    if st.button("🚀 Upload File"):
+    if st.button("🚀 Upload"):
         if not uploader_name:
-            st.error("Enter your name before uploading.")
+            st.error("Enter your name.")
             return
-
         if not uploaded_file:
-            st.error("Please upload a ZIP file.")
+            st.error("Upload a ZIP file.")
             return
 
         base_name = selected_folder.strip()
@@ -194,17 +191,17 @@ def main():
             temp_path = tmp.name
 
         next_v = get_next_version(files, base_name)
-        timecode = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y%m%d_%H%M%S")
 
-        file_base = os.path.splitext(uploaded_file.name)[0]
-        new_name = f"{file_base}_v{next_v}_{uploader_name}_{timecode}.zip"
-        final_path = os.path.join(tempfile.gettempdir(), new_name)
+        clean_name = os.path.splitext(uploaded_file.name)[0]
+        new_filename = f"{clean_name}_v{next_v}_{uploader_name}_{timestamp}.zip"
+        final_path = os.path.join(tempfile.gettempdir(), new_filename)
+
         os.replace(temp_path, final_path)
 
-        upload_to_drive(service, folder_id, final_path, new_name)
+        upload_to_drive(service, folder_id, final_path, new_filename)
 
-        if os.path.exists(final_path):
-            os.remove(final_path)
+        os.remove(final_path)
 
 
 if __name__ == "__main__":
